@@ -33,6 +33,10 @@ pub enum HandleMsg {
         proposal_id: u64,
         vote: Vote,
     },
+    Veto {
+        proposal_id: u64,
+        vote: Vote,
+    },
     Execute {
         proposal_id: u64,
     },

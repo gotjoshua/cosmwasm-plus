@@ -72,6 +72,7 @@ pub fn handle(
             latest,
         } => handle_propose(deps, env, info, title, description, msgs, latest),
         HandleMsg::Vote { proposal_id, vote } => handle_vote(deps, env, info, proposal_id, vote),
+        HandleMsg::Veto { proposal_id, vote } => handle_veto(deps, env, info, proposal_id, vote),
         HandleMsg::Execute { proposal_id } => handle_execute(deps, env, info, proposal_id),
         HandleMsg::Close { proposal_id } => handle_close(deps, env, info, proposal_id),
     }
@@ -192,6 +193,63 @@ pub fn handle_vote(
         messages: vec![],
         attributes: vec![
             attr("action", "vote"),
+            attr("sender", info.sender),
+            attr("proposal_id", proposal_id),
+            attr("status", format!("{:?}", prop.status)),
+        ],
+        data: None,
+    })
+}
+
+
+pub fn handle_veto(
+    deps: DepsMut, 
+    env: Env,
+    info: MessageInfo,
+    proposal_id: u64,
+    vote: Vote,
+) -> Result<HandleResponse<Empty>, ContractError> {
+    // only members of the multisig can veto
+    let raw_sender = deps.api.canonical_address(&info.sender)?;
+    let veto_power = VOTERS
+        .may_load(deps.storage, &raw_sender)?
+        .ok_or_else(|| ContractError::Unauthorized {})?;
+
+    // ensure proposal exists and can be vetod on
+    let mut prop = PROPOSALS.load(deps.storage, proposal_id.into())?;
+    if prop.status != Status::Open {
+        return Err(ContractError::NotOpen {});
+    }
+    if prop.expires.is_expired(&env.block) {
+        return Err(ContractError::Expired {});
+    }
+
+    // cast veto if no veto previously cast
+    // BALLOTS.update(
+    //     deps.storage,
+    //     (proposal_id.into(), &raw_sender),
+    //     |bal| match bal {
+    //         Some(_) => Err(ContractError::AlreadyVoted {}),
+    //         None => Ok(Ballot {
+    //             weight: veto_power,
+    //             veto,
+    //         }),
+    //     },
+    // )?;
+
+    // if yes veto, update tally
+    if vote == Vote::Veto {
+
+        // update status when the  veto comes in
+        prop.status = Status::Rejected; 
+        // TODO close for more votes
+        PROPOSALS.save(deps.storage, proposal_id.into(), &prop)?;
+    }
+
+    Ok(HandleResponse {
+        messages: vec![],
+        attributes: vec![
+            attr("action", "veto"),
             attr("sender", info.sender),
             attr("proposal_id", proposal_id),
             attr("status", format!("{:?}", prop.status)),
